@@ -26,6 +26,8 @@ args = parser.parse_args()
 
 direc = "/sciclone/home20/hmbaier/tflow/ips/"
 
+
+
 os.environ["TF_CONFIG"] = make_config(int(args.rank) - 1, direc, 12345)
 
 print("hey!")
