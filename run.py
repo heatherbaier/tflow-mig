@@ -12,6 +12,9 @@ from make_config import *
 import resnet
 
 
+cc = tf.keras.layers.CenterCrop(1000, 1000)
+
+
 def train_test_split(files, split):
 
     """ Split data into training and validation sets """
@@ -30,7 +33,7 @@ def get_train():
 
     for file in train_files:
         print("Train File: ", file)
-        img = ( np.array(nc.Dataset(file, "r")["ims"][0:1])[0], np.array(nc.Dataset(file, "r")["migrants"][0:1]) )
+        img = ( cc(np.array(nc.Dataset(file, "r")["ims"][0:1])[0]), np.array(nc.Dataset(file, "r")["migrants"][0:1]) )
         yield img
 
 
@@ -40,13 +43,12 @@ def get_val():
 
     for file in val_files:
         print("Val File: ", file)
-        img = ( np.array(nc.Dataset(file, "r")["ims"][0:1])[0], np.array(nc.Dataset(file, "r")["migrants"][0:1]) )
+        img = ( cc(np.array(nc.Dataset(file, "r")["ims"][0:1])[0]), np.array(nc.Dataset(file, "r")["migrants"][0:1]) )
         yield img
 
 
-
-
 if __name__ == "__main__":
+
 
     #################################################################################
     # Parse Input Agruments
@@ -63,9 +65,11 @@ if __name__ == "__main__":
     # Initialize the TF_CONFIG variable with the nodes participating in training
     #################################################################################
     ips_direc = "/sciclone/home20/hmbaier/tflow/ips/"
-    os.environ["TF_CONFIG"] = make_config(int(args.rank) - 1, ips_direc, 45962)
+    os.environ["TF_CONFIG"] = make_config(int(args.rank) - 1, ips_direc, 45970)
     strategy = tf.distribute.experimental.MultiWorkerMirroredStrategy()
 
+    options = tf.data.Options()
+    options.experimental_distribute.auto_shard_policy = tf.data.experimental.AutoShardPolicy.DATA
 
     #################################################################################
     # Split the imagery file names into training & validation sets
@@ -77,6 +81,7 @@ if __name__ == "__main__":
     print("Number of nCDF files: ", len(files))
 
     train_files, val_files = train_test_split(files, .75)
+
     train_dataset = tf.data.Dataset.from_generator(generator = get_train, output_types=(tf.float32, tf.float32)).batch(int(args.world_size))
     val_dataset = tf.data.Dataset.from_generator(generator = get_val, output_types=(tf.float32, tf.float32)).batch(int(args.world_size))
 
@@ -97,15 +102,19 @@ if __name__ == "__main__":
         multi_worker_model.compile(
             optimizer = tf.keras.optimizers.Adam(learning_rate = 0.001),
             loss = tf.keras.losses.MeanAbsoluteError(),
-            metrics=[tf.keras.losses.MeanAbsoluteError()]
+            metrics = [tf.keras.losses.MeanAbsoluteError()]
         )
 
-    print("Number of steps per epoch: ", int(len(files) // args.world_size))
+    print("Number of steps per epoch: ", int(len(files) // int(args.world_size)))
 
 
     #################################################################################
     # Train the model
     #################################################################################
     multi_worker_model.fit(train_dataset,
-                        steps_per_epoch = int(len(files) // args.world_size),
-                        validation_data = val_dataset)
+                           steps_per_epoch = int(len(train_files) // int(args.world_size)),
+                           validation_data = val_dataset,
+                           validation_steps = int(len(val_files) // int(args.world_size)))
+
+
+
